@@ -11,8 +11,8 @@ const useAnchor = () => {
    * if source is 'user', it means the anchor state was set by actually scrolling, therefore scroll action is NOT needed after state update,
    */
   const [anchor, setAnchor] = useState({
-    name: null,
-    source: null
+    name: '',
+    source: 'js'
   });
   return {anchor, setAnchor}
 };
@@ -21,8 +21,9 @@ const useAnchor = () => {
  * @param {AnchorList} anchorList
  * @param {AnchorRefs} anchorRefs
  * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
+ * @param {React.RefObject<boolean>} isTouchingRef
  */
-const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor) => {
+const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isTouchingRef) => {
   const anchorPosition = useMemo(() => {
     const positions = [];
     anchorList.forEach(name => {
@@ -49,6 +50,10 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor) => {
     };
 
     const scrollHandler = () => {
+      if (isTouchingRef.current) {
+        // see comments @isTouchingRef for detail
+        return
+      }
       const anchorIndex = search(anchorPosition, window.scrollY);
       const newAnchorName = anchorList[anchorIndex];
       setAnchor(prevAnchor => {
@@ -70,15 +75,16 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor) => {
     return () => {
       document.removeEventListener('scroll', scrollHandler)
     }
-  }, [anchorList, anchorPosition, setAnchor])
+  }, [anchorList, anchorPosition, setAnchor, isTouchingRef])
 };
 
 /**
  * @param {React.RefObject} rootRef The ref of the scrollbar root element
  * @param {AnchorList} anchorList
  * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
+ * @param {React.RefObject<boolean>} isTouchingRef
  */
-const useBindAnchorToTouch = (rootRef, anchorList, setAnchor) => {
+const useBindAnchorToTouch = (rootRef, anchorList, setAnchor, isTouchingRef) => {
   const lastTouched = useRef(0);
 
   useEffect(() => {
@@ -98,9 +104,10 @@ const useBindAnchorToTouch = (rootRef, anchorList, setAnchor) => {
 
     const handleTouchMove = (e) => {
       e.preventDefault();
+      isTouchingRef.current = true;
 
       // throttling
-      // otherwise won't work on ios
+      // otherwise it jumps on ios
       const now = Date.now();
       if (now - lastTouched.current < 50) {
         return
@@ -122,13 +129,19 @@ const useBindAnchorToTouch = (rootRef, anchorList, setAnchor) => {
       });
     };
 
+    const handleTouchEnd = () => {
+      isTouchingRef.current = false;
+    };
+
     rootEl.addEventListener('touchstart', handleTouchMove, {passive: false});
     rootEl.addEventListener('touchmove', handleTouchMove, {passive: false});
+    rootEl.addEventListener('touchend', handleTouchEnd);
     return () => {
       rootEl.removeEventListener('touchstart', handleTouchMove);
       rootEl.removeEventListener('touchmove', handleTouchMove);
+      rootEl.removeEventListener('touchend', handleTouchEnd);
     }
-  }, [anchorList, rootRef, setAnchor]);
+  }, [anchorList, rootRef, setAnchor, isTouchingRef]);
 };
 
 /**
@@ -228,10 +241,15 @@ const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
   const classes = useStyles();
   const styles = useInlineStyles(anchorList.length);
 
+  // needed to solve ios bottom anchor jumping issue
+  // ios has elastic scrolling, you can scroll out of the bottom and it will automatically scroll back to the bottom
+  // that bounce back action will trigger scroll event listener, do not update anchor state for that action.
+  const isTouchingRef = useRef(false);
+
   const rootRef = useRef(null);
   const {anchor, setAnchor} = useAnchor();
-  useBindAnchorToScroll(anchorList, anchorRefs, setAnchor);
-  useBindAnchorToTouch(rootRef, anchorList, setAnchor);
+  useBindAnchorToScroll(anchorList, anchorRefs, setAnchor, isTouchingRef);
+  useBindAnchorToTouch(rootRef, anchorList, setAnchor, isTouchingRef);
   useScrollAfterAnchorChange(anchor, anchorRefs);
 
   const getMouseOverHandler = (newAnchorName) => {
