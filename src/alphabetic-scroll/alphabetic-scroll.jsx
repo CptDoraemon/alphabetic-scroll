@@ -234,6 +234,11 @@ const useStyles = makeStyles((theme) => {
 });
 
 /**
+ * Workflow:
+ * touch/hover -> update anchor state -> sync scroll position to anchor state
+ * scroll -> sync anchor state to scroll position
+ */
+/**
  * @type {React.FC<TouchScrollBarProps>}
  */
 const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
