@@ -1,0 +1,30 @@
+.contact-wrapper-root {
+    box-sizing: border-box;
+    margin: 32px;
+    padding: 32px;
+    width: calc(100% - 64px);
+    font-weight: 700;
+}
+
+.contact-wrapper-letter-title {
+    text-transform: capitalize;
+    margin: 8px;
+    padding: 4px 8px;
+    background-color: #ddd;
+}
+
+.contact-wrapper-root ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+
+.contact-wrapper-root li {
+    margin: 8px;
+    padding: 4px 8px;
+    border-bottom: 1px solid #ddd;
+}
+
+.contact-wrapper-root li:last-child {
+    border-bottom: none;
+}
