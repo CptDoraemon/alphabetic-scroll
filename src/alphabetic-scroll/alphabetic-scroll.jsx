@@ -2,24 +2,27 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import {makeStyles} from "@material-ui/core/styles";
 
 const useAnchor = () => {
-  const [anchor, setAnchor] = useState(null);
-
   /**
-   * @typedef {React.RefObject<boolean>} IsScrolledByJsRef
-   * ScrolledByJs means the user used this component to scroll, and the scroll action is completed by window.scrollTo
-   * useScrollAfterAnchorChange can be skipped if indeed scrolled by js.
+   * @typedef {{
+   *   source: 'js' | 'user',
+   *   name: String
+   * }} AnchorState
+   * If source is 'js', it means the anchor state was set by touching or hovering, therefore scroll action is needed after state update,
+   * if source is 'user', it means the anchor state was set by actually scrolling, therefore scroll action is NOT needed after state update,
    */
-  const isScrolledByJsRef = useRef(false);
-  return {anchor, setAnchor, isScrolledByJsRef}
+  const [anchor, setAnchor] = useState({
+    name: null,
+    source: null
+  });
+  return {anchor, setAnchor}
 };
 
 /**
  * @param {AnchorList} anchorList
  * @param {AnchorRefs} anchorRefs
  * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
- * @param {IsScrolledByJsRef} isScrolledByJsRef
  */
-const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isScrolledByJsRef) => {
+const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor) => {
   const anchorPosition = useMemo(() => {
     const positions = [];
     anchorList.forEach(name => {
@@ -46,11 +49,18 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isScrolledByJs
     };
 
     const scrollHandler = () => {
-      if (isScrolledByJsRef.current) {
-        return
-      }
       const anchorIndex = search(anchorPosition, window.scrollY);
-      setAnchor(anchorList[anchorIndex])
+      const newAnchorName = anchorList[anchorIndex];
+      setAnchor(prevAnchor => {
+        if (prevAnchor.name !== newAnchorName) {
+          return {
+            source: 'user',
+            name: newAnchorName
+          }
+        } else {
+          return prevAnchor
+        }
+      })
     };
 
     document.addEventListener('scroll', scrollHandler);
@@ -60,16 +70,17 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isScrolledByJs
     return () => {
       document.removeEventListener('scroll', scrollHandler)
     }
-  }, [anchorList, anchorPosition, setAnchor, isScrolledByJsRef])
+  }, [anchorList, anchorPosition, setAnchor])
 };
 
 /**
  * @param {React.RefObject} rootRef The ref of the scrollbar root element
  * @param {AnchorList} anchorList
  * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
- * @param {IsScrolledByJsRef} isScrolledByJsRef
  */
-const useBindAnchorToTouch = (rootRef, anchorList, setAnchor, isScrolledByJsRef) => {
+const useBindAnchorToTouch = (rootRef, anchorList, setAnchor) => {
+  const lastTouched = useRef(0);
+
   useEffect(() => {
     if (!rootRef.current) {
       return;
@@ -87,14 +98,27 @@ const useBindAnchorToTouch = (rootRef, anchorList, setAnchor, isScrolledByJsRef)
 
     const handleTouchMove = (e) => {
       e.preventDefault();
+
+      // throttling
+      // otherwise won't work on ios
+      const now = Date.now();
+      if (now - lastTouched.current < 50) {
+        return
+      }
+      lastTouched.current = now;
+
       const clientX = e.changedTouches[0].clientX;
       const clientY = e.changedTouches[0].clientY;
-      const anchor = getAnchor(clientX, clientY);
+      const newAnchorName = getAnchor(clientX, clientY);
       setAnchor(prevAnchor => {
-        if (prevAnchor !== anchor) {
-          isScrolledByJsRef.current = true;
+        if (prevAnchor.name !== newAnchorName) {
+          return {
+            source: 'js',
+            name: newAnchorName
+          }
+        } else {
+          return prevAnchor
         }
-        return anchor
       });
     };
 
@@ -104,22 +128,20 @@ const useBindAnchorToTouch = (rootRef, anchorList, setAnchor, isScrolledByJsRef)
       rootEl.removeEventListener('touchstart', handleTouchMove);
       rootEl.removeEventListener('touchmove', handleTouchMove);
     }
-  }, [anchorList, rootRef, setAnchor, isScrolledByJsRef]);
+  }, [anchorList, rootRef, setAnchor]);
 };
 
 /**
- * @param {String} anchor
+ * @param {AnchorState} anchor
  * @param {AnchorRefs} anchorRefs
- * @param {IsScrolledByJsRef} isScrolledByJsRef
  */
-const useScrollAfterAnchorChange = (anchor, anchorRefs, isScrolledByJsRef) => {
+const useScrollAfterAnchorChange = (anchor, anchorRefs) => {
   const previousAnchorRef = useRef(anchor);
 
   useEffect(() => {
-    if (previousAnchorRef.current !== anchor && isScrolledByJsRef.current) {
-      window.scrollTo(0, anchorRefs[anchor].getBoundingClientRect().top + window.scrollY);
+    if (previousAnchorRef.current.name !== anchor.name && anchor.source === 'js') {
+      window.scrollTo(0, anchorRefs[anchor.name].getBoundingClientRect().top + window.scrollY);
     }
-    isScrolledByJsRef.current = false;
     return () => {
       previousAnchorRef.current = anchor
     }
@@ -207,18 +229,22 @@ const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
   const styles = useInlineStyles(anchorList.length);
 
   const rootRef = useRef(null);
-  const {anchor, setAnchor, isScrolledByJsRef} = useAnchor();
-  useBindAnchorToScroll(anchorList, anchorRefs, setAnchor, isScrolledByJsRef);
-  useBindAnchorToTouch(rootRef, anchorList, setAnchor, isScrolledByJsRef);
-  useScrollAfterAnchorChange(anchor, anchorRefs, isScrolledByJsRef);
+  const {anchor, setAnchor} = useAnchor();
+  useBindAnchorToScroll(anchorList, anchorRefs, setAnchor);
+  useBindAnchorToTouch(rootRef, anchorList, setAnchor);
+  useScrollAfterAnchorChange(anchor, anchorRefs);
 
-  const getMouseOverHandler = (name) => {
+  const getMouseOverHandler = (newAnchorName) => {
     return () => {
       setAnchor(prevAnchor => {
-        if (prevAnchor !== name) {
-          isScrolledByJsRef.current = true;
+        if (prevAnchor.name !== newAnchorName) {
+          return {
+            source: 'js',
+            name: newAnchorName
+          }
+        } else {
+          return prevAnchor
         }
-        return name
       });
     }
   };
@@ -238,7 +264,7 @@ const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
               style={styles.li}
             >
               <span>{name}</span>
-              { anchor === name && <div className={classes.indicator} style={styles.indicator}/> }
+              { anchor.name === name && <div className={classes.indicator} style={styles.indicator}/> }
             </li>
           ))
         }
