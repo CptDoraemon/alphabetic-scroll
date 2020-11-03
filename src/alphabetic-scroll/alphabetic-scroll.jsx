@@ -27,7 +27,7 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isTouchingRef)
   const anchorPosition = useMemo(() => {
     const positions = [];
     anchorList.forEach(name => {
-      positions.push(anchorRefs[name].getBoundingClientRect().top + window.scrollY)
+      positions.push(anchorRefs.current[name].getBoundingClientRect().top + window.scrollY)
     });
     return positions
   }, [anchorList, anchorRefs]);
@@ -152,8 +152,8 @@ const useScrollAfterAnchorChange = (anchor, anchorRefs) => {
   const previousAnchorRef = useRef(anchor);
 
   useEffect(() => {
-    if (previousAnchorRef.current.name !== anchor.name && anchor.source === 'js') {
-      window.scrollTo(0, anchorRefs[anchor.name].getBoundingClientRect().top + window.scrollY);
+    if (previousAnchorRef.current.name !== anchor.name && anchor.source === 'js' && anchorRefs.current) {
+      window.scrollTo(0, anchorRefs.current[anchor.name].getBoundingClientRect().top + window.scrollY);
     }
     return () => {
       previousAnchorRef.current = anchor
@@ -241,8 +241,7 @@ const useStyles = makeStyles((theme) => {
 /**
  * @type {React.FC<TouchScrollBarProps>}
  */
-const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
-  const anchorRefs = _anchorRefs.current;
+const TouchScrollBarInner = ({anchorList, anchorRefs}) => {
   const classes = useStyles();
   const styles = useInlineStyles(anchorList.length);
 
@@ -313,12 +312,13 @@ const TouchScrollBarInner = ({anchorList, anchorRefs: _anchorRefs}) => {
 /**
  * @typedef {Object<string, any>} TouchScrollBarProps
  * @property {AnchorList} anchorList
+ * @property {AnchorRefs} anchorRefs
  */
 /**
  * A helper component, used to make sure the lists are mounted before scrollbar so that ref object is populated.
- * @type {React.FC<TouchScrollBarProps>}
+ * @type {React.FC<TouchScrollBarProps>} TouchScrollBar
  */
-const TouchScrollBar = (props) => {
+const TouchScrollBar = ({anchorList, anchorRefs}) => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -328,7 +328,7 @@ const TouchScrollBar = (props) => {
   if (!mounted) {
     return <></>
   } else {
-    return <TouchScrollBarInner {...props}/>
+    return <TouchScrollBarInner anchorList={anchorList} anchorRefs={anchorRefs}/>
   }
 };
 
