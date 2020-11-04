@@ -322,8 +322,10 @@ const TouchScrollBar = ({anchorList, anchorRefs}) => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true)
-  }, []);
+    if (anchorList && anchorList.length > 0) {
+      setMounted(true)
+    }
+  }, [anchorList]);
 
   if (!mounted) {
     return <></>
