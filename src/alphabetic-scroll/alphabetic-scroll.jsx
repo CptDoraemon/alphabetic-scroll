@@ -33,21 +33,22 @@ const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isTouchingRef)
   }, [anchorList, anchorRefs]);
 
   useEffect(() => {
-    const search = (nums, target) => {
-      let lo = 0, hi = nums.length - 1;
-      while(lo < hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        if (nums[mid] === target) {
-          break;
-        } else if (nums[mid] > target ) {
-          hi = mid - 1;
-        } else {
-          lo = mid + 1;
+    const search = (array, target) => {
+      let l = 0;
+      let r = array.length - 1;
+      while (l < r) {
+        const midIndex = Math.floor((l + r) / 2);
+        const midValue = array[midIndex];
+
+        if (midValue === target) {
+          return midIndex
+        } else if (midValue < target) {
+          l = midIndex + 1
+        } else if (midValue > target) {
+          r = midIndex - 1
         }
       }
-      const mid = Math.floor((lo + hi) / 2);
-      const index = target <= nums[mid] ? mid - 1 : mid;
-      return Math.max(0, index);
+      return Math.max(0, l - 1)
     };
 
     const scrollHandler = () => {
@@ -164,7 +165,7 @@ const useScrollAfterAnchorChange = (anchor, anchorRefs) => {
 
 const useInlineStyles = (listLength) => {
   return useMemo(() => {
-    const maxContainerHeight = window.innerHeight * 0.8;
+    const maxContainerHeight = window.innerHeight - 200;
     const maxHeight = 20;
     const minHeight = 10;
     const rawHeight = maxContainerHeight / listLength;
@@ -178,9 +179,6 @@ const useInlineStyles = (listLength) => {
       },
       container: {
         height: `${containerHeight}px`,
-      },
-      indicator: {
-        height: `${Math.floor(fontSize / 5)}px`
       }
     }
   }, [listLength]);
@@ -188,9 +186,10 @@ const useInlineStyles = (listLength) => {
 
 const useStyles = makeStyles((theme) => {
   const rootWidth = 60;
-  const textWidth = 20;
-  const paddingLeft = 10;
+  const textWidth = 25;
+  const paddingLeft = 0;
   const indicatorWidth = rootWidth - textWidth - paddingLeft;
+  const indicatorHeight = 4;
 
   return {
     root: {
@@ -208,8 +207,7 @@ const useStyles = makeStyles((theme) => {
       '& li': {
         width: '100%',
         textTransform: 'uppercase',
-        color: theme.palette.primary.main,
-        fontWeight: 700,
+        // color: theme.palette.primary.main,
         cursor: 'pointer',
         display: 'flex',
         flexDirection: 'row',
@@ -226,10 +224,24 @@ const useStyles = makeStyles((theme) => {
     indicator: {
       position: 'absolute',
       width: indicatorWidth,
+      height: indicatorHeight,
       backgroundColor: theme.palette.primary.main,
-      right: textWidth,
+      left: paddingLeft,
       top: '50%',
       transform: 'translateY(-50%)',
+      '&:after': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: indicatorWidth,
+        fontSize: 0,
+        lineHeight: '0%',
+        width: 0,
+        borderTop: `${indicatorHeight / 2}px solid rgba(0,0,0,0)`,
+        borderBottom: `${indicatorHeight / 2}px solid rgba(0,0,0,0)`,
+        borderLeft: `${indicatorHeight / 2}px solid ${theme.palette.primary.main}`,
+        borderRight: 'none'
+      }
     }
   }
 });
@@ -273,26 +285,31 @@ const TouchScrollBarInner = ({anchorList, anchorRefs}) => {
   };
 
   return (
-    <div
-      ref={rootRef}
-      className={classes.root}
-      style={styles.container}
-    >
-      <ul>
-        {
-          anchorList.map(name => (
-            <li
-              onMouseOver={getMouseOverHandler(name)}
-              key={name}
-              style={styles.li}
-            >
-              <span>{name}</span>
-              { anchor.name === name && <div className={classes.indicator} style={styles.indicator}/> }
-            </li>
-          ))
-        }
-      </ul>
-    </div>
+      <div
+          ref={rootRef}
+          className={classes.root}
+          style={styles.container}
+      >
+        <ul
+            onMouseEnter={() => isTouchingRef.current = true}
+            onMouseLeave={() => isTouchingRef.current = false}
+        >
+          {
+            anchorList.map(name => (
+                <li
+                    onMouseOver={getMouseOverHandler(name)}
+                    key={name}
+                    style={styles.li}
+                >
+                  <span>{name}</span>
+                  { anchor.name === name &&
+                  <div className={classes.indicator} />
+                  }
+                </li>
+            ))
+          }
+        </ul>
+      </div>
   )
 };
 
