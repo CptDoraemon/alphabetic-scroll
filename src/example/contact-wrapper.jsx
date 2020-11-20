@@ -32,7 +32,7 @@ const mockData = (() => {
 
 const ContactWrapper = () => {
 
-  const getId = (letter) => `contact-wrapper-${letter}`;
+  const listRef = useRef(null);
 
   const categories = useMemo(() => {
     return mockData.map(names => names[0][0])
@@ -62,10 +62,10 @@ const ContactWrapper = () => {
 
   return (
     <>
-      <div className={'contact-wrapper-root'}>
+      <div className={'contact-wrapper-root'} ref={listRef}>
         {list}
       </div>
-      <TouchScrollBar anchorList={categories} anchorRefs={anchorRefs}/>
+      <TouchScrollBar anchorList={categories} anchorRefs={anchorRefs} listRef={listRef}/>
     </>
   )
 };

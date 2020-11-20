@@ -1,180 +1,172 @@
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {makeStyles} from "@material-ui/core/styles";
 
-const useAnchor = () => {
-  /**
-   * @typedef {{
-   *   source: 'js' | 'user',
-   *   name: String
-   * }} AnchorState
-   * If source is 'js', it means the anchor state was set by touching or hovering, therefore scroll action is needed after state update,
-   * if source is 'user', it means the anchor state was set by actually scrolling, therefore scroll action is NOT needed after state update,
-   */
-  const [anchor, setAnchor] = useState({
-    name: '',
-    source: 'js'
-  });
-  return {anchor, setAnchor}
+const HEADER_HEIGHT = 75;
+const FOOTER_HEIGHT = 115;
+
+const search = (nums, target) => {
+  let lo = 0, hi = nums.length - 1;
+  while(lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (nums[mid] === target) {
+      break;
+    } else if (nums[mid] > target ) {
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  const mid = Math.floor((lo + hi) / 2);
+  const index = target <= nums[mid] ? mid - 1 : mid;
+  return Math.max(0, index);
 };
 
-/**
- * @param {AnchorList} anchorList
- * @param {AnchorRefs} anchorRefs
- * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
- * @param {React.RefObject<boolean>} isTouchingRef
- */
-const useBindAnchorToScroll = (anchorList, anchorRefs, setAnchor, isTouchingRef) => {
-  const anchorPosition = useMemo(() => {
+const cap = (num, min, max) => {
+  return Math.max(Math.min(num, max), min)
+};
+
+const useGetSectionPositions = (anchorList, anchorRefs) => {
+  return useMemo(() => {
     const positions = [];
     anchorList.forEach(name => {
-      positions.push(anchorRefs.current[name].getBoundingClientRect().top + window.scrollY)
+      positions.push(anchorRefs.current[name].getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT)
     });
     return positions
   }, [anchorList, anchorRefs]);
-
-  useEffect(() => {
-    const search = (array, target) => {
-      let l = 0;
-      let r = array.length - 1;
-      while (l < r) {
-        const midIndex = Math.floor((l + r) / 2);
-        const midValue = array[midIndex];
-
-        if (midValue === target) {
-          return midIndex
-        } else if (midValue < target) {
-          l = midIndex + 1
-        } else if (midValue > target) {
-          r = midIndex - 1
-        }
-      }
-      return Math.max(0, l - 1)
-    };
-
-    const scrollHandler = () => {
-      if (isTouchingRef.current) {
-        // see comments @isTouchingRef for detail
-        return
-      }
-      const anchorIndex = search(anchorPosition, window.scrollY);
-      const newAnchorName = anchorList[anchorIndex];
-      setAnchor(prevAnchor => {
-        if (prevAnchor.name !== newAnchorName) {
-          return {
-            source: 'user',
-            name: newAnchorName
-          }
-        } else {
-          return prevAnchor
-        }
-      })
-    };
-
-    document.addEventListener('scroll', scrollHandler);
-    // set the initial anchor by running scrollHandler once
-    scrollHandler();
-
-    return () => {
-      document.removeEventListener('scroll', scrollHandler)
-    }
-  }, [anchorList, anchorPosition, setAnchor, isTouchingRef])
 };
 
-/**
- * @param {React.RefObject} rootRef The ref of the scrollbar root element
- * @param {AnchorList} anchorList
- * @param {React.Dispatch<React.SetStateAction<string>>} setAnchor
- * @param {React.RefObject<boolean>} isTouchingRef
- */
-const useBindAnchorToTouch = (rootRef, anchorList, setAnchor, isTouchingRef) => {
-  const lastTouched = useRef(0);
+const useGetListEndPosition = (listRef) => {
+  return useMemo(() => {
+    return listRef.current.getBoundingClientRect().bottom + window.scrollY;
+  }, [listRef]);
+};
 
+const useBindScrollHandler = (setIndicatorTop, sectionPositions, listEndPosition, listLength, isTouchingRef) => {
   useEffect(() => {
-    if (!rootRef.current) {
-      return;
-    }
-    const rootEl = rootRef.current;
+    const scrollHandler = () => {
+      if (isTouchingRef.current) {
+        return
+      }
 
-    // return the anchor that was touched
-    const getAnchor = (clientX, clientY) => {
-      const rootRect = rootEl.getBoundingClientRect();
-      const liHeight = rootRect.height / anchorList.length;
-      const index = Math.floor((clientY - rootRect.y) / liHeight);
-      const cappedIndex = Math.min(Math.max(0, index), anchorList.length - 1);
-      return anchorList[cappedIndex]
+      const scrolled = window.scrollY;
+      const currentSectionIndex = search(sectionPositions, scrolled);
+      const currentSectionPositionStart = sectionPositions[currentSectionIndex];
+      const currentSectionPositionEnd = currentSectionIndex < listLength - 1 ?
+          sectionPositions[currentSectionIndex + 1] :
+          listEndPosition;
+      const percentageInCurrentSection = (scrolled - currentSectionPositionStart) / (currentSectionPositionEnd - currentSectionPositionStart);
+      const cappedPercentageInCurrentSection = cap(percentageInCurrentSection, 0, 1);
+      setIndicatorTop(100 / listLength * (currentSectionIndex + cappedPercentageInCurrentSection))
+    };
+
+    // scroll once to initialize indicator position
+    scrollHandler();
+
+    document.addEventListener('scroll', scrollHandler);
+    return () => {
+      document.removeEventListener('scroll', scrollHandler);
+    }
+  }, [isTouchingRef, listEndPosition, listLength, sectionPositions, setIndicatorTop])
+};
+
+const useBindTouchHandler = (rootRef, updateToClientYChange, isTouchingRef) => {
+  useEffect(() => {
+    const rootEl = rootRef.current;
+    if (!rootEl) {
+      return
+    }
+
+    const handleTouchStart = (e) => {
+      isTouchingRef.current = true;
+      const clientY = e.changedTouches[0].clientY;
+      updateToClientYChange(clientY);
     };
 
     const handleTouchMove = (e) => {
       e.preventDefault();
-      isTouchingRef.current = true;
-
-      // throttling
-      // otherwise it jumps on ios
-      const now = Date.now();
-      if (now - lastTouched.current < 50) {
-        return
-      }
-      lastTouched.current = now;
-
-      const clientX = e.changedTouches[0].clientX;
       const clientY = e.changedTouches[0].clientY;
-      const newAnchorName = getAnchor(clientX, clientY);
-      setAnchor(prevAnchor => {
-        if (prevAnchor.name !== newAnchorName) {
-          return {
-            source: 'js',
-            name: newAnchorName
-          }
-        } else {
-          return prevAnchor
-        }
-      });
+      updateToClientYChange(clientY);
     };
 
     const handleTouchEnd = () => {
       isTouchingRef.current = false;
     };
 
-    rootEl.addEventListener('touchstart', handleTouchMove, {passive: false});
+    rootEl.addEventListener('touchstart', handleTouchStart);
     rootEl.addEventListener('touchmove', handleTouchMove, {passive: false});
     rootEl.addEventListener('touchend', handleTouchEnd);
+    rootEl.addEventListener('touchcancel', handleTouchEnd);
     return () => {
-      rootEl.removeEventListener('touchstart', handleTouchMove);
+      rootEl.removeEventListener('touchstart', handleTouchStart);
       rootEl.removeEventListener('touchmove', handleTouchMove);
       rootEl.removeEventListener('touchend', handleTouchEnd);
+      rootEl.removeEventListener('touchcancel', handleTouchEnd);
     }
-  }, [anchorList, rootRef, setAnchor, isTouchingRef]);
+  }, [isTouchingRef, rootRef, updateToClientYChange])
 };
 
-/**
- * @param {AnchorState} anchor
- * @param {AnchorRefs} anchorRefs
- */
-const useScrollAfterAnchorChange = (anchor, anchorRefs) => {
-  const previousAnchorRef = useRef(anchor);
+const useUpdateToClientYChange = (anchorListLength, rootRef, setIndicatorTop, sectionPositions, listEndPosition) => {
+  const isScrolledInCurrentCycleRef = useRef(false);
 
-  useEffect(() => {
-    if (previousAnchorRef.current.name !== anchor.name && anchor.source === 'js' && anchorRefs.current) {
-      window.scrollTo(0, anchorRefs.current[anchor.name].getBoundingClientRect().top + window.scrollY);
+  const scrollTo = useCallback((sectionIndex, percentageInSection) => {
+    const currentSectionPositionStart = sectionPositions[sectionIndex];
+    const currentSectionPositionEnd = sectionIndex < anchorListLength - 1 ?
+        sectionPositions[sectionIndex + 1] :
+        listEndPosition;
+    const destination = currentSectionPositionStart + percentageInSection * (currentSectionPositionEnd - currentSectionPositionStart);
+    window.scrollTo(0, destination);
+  }, [anchorListLength, listEndPosition, sectionPositions]);
+
+  const getTouchDetail = useCallback((clientY) => {
+    if (!rootRef.current) {
+      return
     }
-    return () => {
-      previousAnchorRef.current = anchor
+    const rootRect = rootRef.current.getBoundingClientRect();
+    const liHeight = rootRect.height / anchorListLength;
+    const rawTouchedYInRect = clientY - rootRect.y;
+    const touchedYInRect = cap(rawTouchedYInRect, 0, rootRect.height);
+
+    const currentSectionIndex = cap(Math.floor(touchedYInRect / liHeight), 0, anchorListLength - 1);
+    const currentSectionPercentage = touchedYInRect / liHeight - currentSectionIndex;
+    const top = touchedYInRect / rootRect.height * 100;
+    return {
+      currentSectionIndex,
+      currentSectionPercentage,
+      indicatorTop: cap(top, 0, 100)
     }
-  });
+  }, [anchorListLength, rootRef]);
+
+  return useCallback((clientY) => {
+    // iOS has jumping bug
+    // The scroll bar has fixed position, which means whenever you scroll, its position relative to the entire document will be changed
+    // it seems that on iOS, multiple window.scrollTo may be called within one frame, but fixed-positioned component won't be repositioned until a new frame is actually rendered
+    // therefore the touch event will report a wrong clientY that is outside of viewport.
+    // make sure it only scroll once within one frame
+    // why 2 requestAnimationFrame? requestAnimationFrame is called right before rendering,
+    // so if you open the lock right there the fixed-positioned component hasn't been repositioned yet, wrong clientY still maybe reported.
+    if (isScrolledInCurrentCycleRef.current) {
+      return
+    }
+    isScrolledInCurrentCycleRef.current = true;
+    const touchDetail = getTouchDetail(clientY);
+    setIndicatorTop(touchDetail.indicatorTop);
+    scrollTo(touchDetail.currentSectionIndex, touchDetail.currentSectionPercentage);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        isScrolledInCurrentCycleRef.current = false;
+      })
+    })
+  }, [getTouchDetail, scrollTo, setIndicatorTop])
 };
 
 const useInlineStyles = (listLength) => {
   return useMemo(() => {
-    const maxContainerHeight = window.innerHeight - 200;
-    const maxHeight = 20;
-    const minHeight = 10;
-    const rawHeight = maxContainerHeight / listLength;
-    const height = Math.max(Math.min(rawHeight, maxHeight), minHeight);
-    const containerHeight = height * listLength;
-    const fontSize = Math.min(14, height);
+    const containerHeight = 430;
+    const listItemHeight = containerHeight / listLength;
+    const fontSize = 12;
     return {
       li: {
-        height: `${height}px`,
+        height: `${listItemHeight}px`,
         fontSize: `${fontSize}px`
       },
       container: {
@@ -185,19 +177,26 @@ const useInlineStyles = (listLength) => {
 };
 
 const useStyles = makeStyles((theme) => {
-  const rootWidth = 60;
-  const textWidth = 25;
-  const paddingLeft = 0;
-  const indicatorWidth = rootWidth - textWidth - paddingLeft;
+  const rootWidth = 41 + 12;
+  const textWidth = 12;
+  const indicatorWidth = 30;
+  const textMarginLeft = rootWidth - textWidth - indicatorWidth;
   const indicatorHeight = 4;
+  const triangleSize = indicatorHeight / 2;
 
   return {
     root: {
       position: 'fixed',
       left: 0,
       top: '50%',
-      width: rootWidth,
       transform: 'translateY(-50%)',
+      width: rootWidth,
+      zIndex: theme.zIndex.appBar,
+    },
+    relativeWrapper: {
+      position: 'relative',
+      width: '100%',
+      height: '100%',
       '& ul': {
         width: '100%',
         listStyleType: 'none',
@@ -207,7 +206,6 @@ const useStyles = makeStyles((theme) => {
       '& li': {
         width: '100%',
         textTransform: 'uppercase',
-        // color: theme.palette.primary.main,
         cursor: 'pointer',
         display: 'flex',
         flexDirection: 'row',
@@ -216,9 +214,11 @@ const useStyles = makeStyles((theme) => {
         position: 'relative'
       },
       '& span': {
+        marginLeft: textMarginLeft,
         display: 'block',
-        width: 20,
-        textAlign: 'center'
+        width: textWidth,
+        textAlign: 'center',
+        color: '#252525'
       }
     },
     indicator: {
@@ -226,9 +226,9 @@ const useStyles = makeStyles((theme) => {
       width: indicatorWidth,
       height: indicatorHeight,
       backgroundColor: theme.palette.primary.main,
-      left: paddingLeft,
-      top: '50%',
+      left: 0,
       transform: 'translateY(-50%)',
+      filter: 'drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2))',
       '&:after': {
         content: '""',
         position: 'absolute',
@@ -237,10 +237,10 @@ const useStyles = makeStyles((theme) => {
         fontSize: 0,
         lineHeight: '0%',
         width: 0,
-        borderTop: `${indicatorHeight / 2}px solid rgba(0,0,0,0)`,
-        borderBottom: `${indicatorHeight / 2}px solid rgba(0,0,0,0)`,
-        borderLeft: `${indicatorHeight / 2}px solid ${theme.palette.primary.main}`,
-        borderRight: 'none'
+        borderTop: `${triangleSize}px solid rgba(0,0,0,0)`,
+        borderBottom: `${triangleSize}px solid rgba(0,0,0,0)`,
+        borderLeft: `${triangleSize}px solid ${theme.palette.primary.main}`,
+        borderRight: 'none',
       }
     }
   }
@@ -248,67 +248,70 @@ const useStyles = makeStyles((theme) => {
 
 /**
  * Workflow:
- * touch/hover -> update anchor state -> sync scroll position to anchor state
- * scroll -> sync anchor state to scroll position
+ * touch/hover -> scroll to corresponding section's position in document -> update indicator position state
+ * scroll -> update indicator position state
  */
 /**
  * @type {React.FC<TouchScrollBarProps>}
  */
-const TouchScrollBarInner = ({anchorList, anchorRefs}) => {
+const TouchScrollBarInner = ({anchorList, anchorRefs, listRef}) => {
   const classes = useStyles();
   const styles = useInlineStyles(anchorList.length);
+  const rootRef = useRef(null);
+  const anchorListLength = anchorList.length;
+  const sectionPositions = useGetSectionPositions(anchorList, anchorRefs);
+  const listEndPosition = useGetListEndPosition(listRef);
 
-  // needed to solve ios bottom anchor jumping issue
-  // ios has elastic scrolling, you can scroll out of the bottom and it will automatically scroll back to the bottom
-  // that bounce back action will trigger scroll event listener, do not update anchor state for that action.
+  // window.scrollTo will trigger scrollEvent too, do not fire scroll event listener for these cases
   const isTouchingRef = useRef(false);
 
-  const rootRef = useRef(null);
-  const {anchor, setAnchor} = useAnchor();
-  useBindAnchorToScroll(anchorList, anchorRefs, setAnchor, isTouchingRef);
-  useBindAnchorToTouch(rootRef, anchorList, setAnchor, isTouchingRef);
-  useScrollAfterAnchorChange(anchor, anchorRefs);
+  const [indicatorTop, _setIndicatorTop] = useState(0); // [0, 100]
+  const setIndicatorTop = useCallback((num) => {
+    // change the num here if you wanna avoid excessive state update (round it or toFixed).
+    _setIndicatorTop(num.toFixed(3))
+  }, []);
 
-  const getMouseOverHandler = (newAnchorName) => {
-    return () => {
-      setAnchor(prevAnchor => {
-        if (prevAnchor.name !== newAnchorName) {
-          return {
-            source: 'js',
-            name: newAnchorName
-          }
-        } else {
-          return prevAnchor
-        }
-      });
-    }
-  };
+  const updateToClientYChange = useUpdateToClientYChange(anchorListLength, rootRef, setIndicatorTop, sectionPositions, listEndPosition);
+  useBindScrollHandler(setIndicatorTop, sectionPositions, listEndPosition, anchorListLength, isTouchingRef);
+  useBindTouchHandler(rootRef, updateToClientYChange, isTouchingRef);
+
+  const mouseMoveHandler = useCallback((e) => {
+    isTouchingRef.current = true;
+    const clientY = e.clientY;
+    updateToClientYChange(clientY)
+  }, [updateToClientYChange]);
+
+  const mouseLeaveHandler = useCallback(() => {
+    isTouchingRef.current = false
+  }, []);
 
   return (
       <div
           ref={rootRef}
           className={classes.root}
           style={styles.container}
+          onMouseEnter={mouseMoveHandler}
+          onMouseMove={mouseMoveHandler}
+          onMouseLeave={mouseLeaveHandler}
       >
-        <ul
-            onMouseEnter={() => isTouchingRef.current = true}
-            onMouseLeave={() => isTouchingRef.current = false}
-        >
-          {
-            anchorList.map(name => (
-                <li
-                    onMouseOver={getMouseOverHandler(name)}
-                    key={name}
-                    style={styles.li}
-                >
-                  <span>{name}</span>
-                  { anchor.name === name &&
-                  <div className={classes.indicator} />
-                  }
-                </li>
-            ))
-          }
-        </ul>
+        <div className={classes.relativeWrapper}>
+          <div
+              className={classes.indicator}
+              style={{top: `${indicatorTop}%`}}
+          > </div>
+          <ul>
+            {
+              anchorList.map(name => (
+                  <li
+                      key={name}
+                      style={styles.li}
+                  >
+                    <span>{name}</span>
+                  </li>
+              ))
+            }
+          </ul>
+        </div>
       </div>
   )
 };
@@ -321,22 +324,30 @@ const TouchScrollBarInner = ({anchorList, anchorRefs}) => {
 /**
  * @typedef {React.RefObject<Object<string, any>>} AnchorRefs
  * A ref object, it's current property is an object, of which key is the name of the anchor, value is the element.
- * in the parent component, set up like this:
+ * Needed to get the positions of the start position of each section.
+ *
+ * In the parent component, set up like this:
  * const anchorRefs = useRef({});
  * return (
  *    nameArray.map(name => <div ref={node => anchorRefs.current[name] = node}></div>)
  * )
  */
 /**
+ * @typedef {React.RefObject<HTMLElement>} ListRef
+ * The ref of the root list component. This ref is used to calculate the height of last section
+ * Need to know the height of each section, I can get them from AnchorRefs except the last section.
+ */
+/**
  * @typedef {Object<string, any>} TouchScrollBarProps
  * @property {AnchorList} anchorList
  * @property {AnchorRefs} anchorRefs
+ * @property {ListRef} listRef
  */
 /**
  * A helper component, used to make sure the lists are mounted before scrollbar so that ref object is populated.
  * @type {React.FC<TouchScrollBarProps>} TouchScrollBar
  */
-const TouchScrollBar = ({anchorList, anchorRefs}) => {
+const TouchScrollBar = ({anchorList, anchorRefs, listRef}) => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -348,7 +359,7 @@ const TouchScrollBar = ({anchorList, anchorRefs}) => {
   if (!mounted) {
     return <></>
   } else {
-    return <TouchScrollBarInner anchorList={anchorList} anchorRefs={anchorRefs}/>
+    return <TouchScrollBarInner anchorList={anchorList} anchorRefs={anchorRefs} listRef={listRef}/>
   }
 };
 
