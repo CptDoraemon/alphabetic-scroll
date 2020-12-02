@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {makeStyles} from "@material-ui/core/styles";
 
 const HEADER_HEIGHT = 75;
-const FOOTER_HEIGHT = 115;
+// const FOOTER_HEIGHT = 115;
 
 const search = (nums, target) => {
   let lo = 0, hi = nums.length - 1;
@@ -41,13 +41,9 @@ const useGetListEndPosition = (listRef) => {
   }, [listRef]);
 };
 
-const useBindScrollHandler = (setIndicatorTop, sectionPositions, listEndPosition, listLength, isTouchingRef) => {
+const useBindScrollHandler = (setIndicatorTop, sectionPositions, listEndPosition, listLength) => {
   useEffect(() => {
     const scrollHandler = () => {
-      if (isTouchingRef.current) {
-        return
-      }
-
       const scrolled = window.scrollY;
       const currentSectionIndex = search(sectionPositions, scrolled);
       const currentSectionPositionStart = sectionPositions[currentSectionIndex];
@@ -66,10 +62,10 @@ const useBindScrollHandler = (setIndicatorTop, sectionPositions, listEndPosition
     return () => {
       document.removeEventListener('scroll', scrollHandler);
     }
-  }, [isTouchingRef, listEndPosition, listLength, sectionPositions, setIndicatorTop])
+  }, [listEndPosition, listLength, sectionPositions, setIndicatorTop])
 };
 
-const useBindTouchHandler = (rootRef, updateToClientYChange, isTouchingRef) => {
+const useBindTouchHandler = (rootRef, updateToClientYChange) => {
   useEffect(() => {
     const rootEl = rootRef.current;
     if (!rootEl) {
@@ -77,7 +73,6 @@ const useBindTouchHandler = (rootRef, updateToClientYChange, isTouchingRef) => {
     }
 
     const handleTouchStart = (e) => {
-      isTouchingRef.current = true;
       const clientY = e.changedTouches[0].clientY;
       updateToClientYChange(clientY);
     };
@@ -88,24 +83,16 @@ const useBindTouchHandler = (rootRef, updateToClientYChange, isTouchingRef) => {
       updateToClientYChange(clientY);
     };
 
-    const handleTouchEnd = () => {
-      isTouchingRef.current = false;
-    };
-
     rootEl.addEventListener('touchstart', handleTouchStart);
     rootEl.addEventListener('touchmove', handleTouchMove, {passive: false});
-    rootEl.addEventListener('touchend', handleTouchEnd);
-    rootEl.addEventListener('touchcancel', handleTouchEnd);
     return () => {
       rootEl.removeEventListener('touchstart', handleTouchStart);
       rootEl.removeEventListener('touchmove', handleTouchMove);
-      rootEl.removeEventListener('touchend', handleTouchEnd);
-      rootEl.removeEventListener('touchcancel', handleTouchEnd);
     }
-  }, [isTouchingRef, rootRef, updateToClientYChange])
+  }, [rootRef, updateToClientYChange])
 };
 
-const useUpdateToClientYChange = (anchorListLength, rootRef, setIndicatorTop, sectionPositions, listEndPosition) => {
+const useUpdateToClientYChange = (anchorListLength, rootRef, sectionPositions, listEndPosition) => {
   const isScrolledInCurrentCycleRef = useRef(false);
 
   const scrollTo = useCallback((sectionIndex, percentageInSection) => {
@@ -114,7 +101,8 @@ const useUpdateToClientYChange = (anchorListLength, rootRef, setIndicatorTop, se
         sectionPositions[sectionIndex + 1] :
         listEndPosition;
     const destination = currentSectionPositionStart + percentageInSection * (currentSectionPositionEnd - currentSectionPositionStart);
-    window.scrollTo(0, destination);
+    const cappedDestination = cap(destination, 0, document.documentElement.scrollHeight - window.innerHeight);
+    window.scrollTo(0, cappedDestination);
   }, [anchorListLength, listEndPosition, sectionPositions]);
 
   const getTouchDetail = useCallback((clientY) => {
@@ -149,14 +137,13 @@ const useUpdateToClientYChange = (anchorListLength, rootRef, setIndicatorTop, se
     }
     isScrolledInCurrentCycleRef.current = true;
     const touchDetail = getTouchDetail(clientY);
-    setIndicatorTop(touchDetail.indicatorTop);
     scrollTo(touchDetail.currentSectionIndex, touchDetail.currentSectionPercentage);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         isScrolledInCurrentCycleRef.current = false;
       })
     })
-  }, [getTouchDetail, scrollTo, setIndicatorTop])
+  }, [getTouchDetail, scrollTo])
 };
 
 const useInlineStyles = (listLength) => {
@@ -188,8 +175,7 @@ const useStyles = makeStyles((theme) => {
     root: {
       position: 'fixed',
       left: 0,
-      top: '50%',
-      transform: 'translateY(-50%)',
+      top: 'calc(50% - 430px/2 - 19.5px)',
       width: rootWidth,
       zIndex: theme.zIndex.appBar,
     },
@@ -262,28 +248,20 @@ const TouchScrollBarInner = ({anchorList, anchorRefs, listRef}) => {
   const sectionPositions = useGetSectionPositions(anchorList, anchorRefs);
   const listEndPosition = useGetListEndPosition(listRef);
 
-  // window.scrollTo will trigger scrollEvent too, do not fire scroll event listener for these cases
-  const isTouchingRef = useRef(false);
-
   const [indicatorTop, _setIndicatorTop] = useState(0); // [0, 100]
   const setIndicatorTop = useCallback((num) => {
     // change the num here if you wanna avoid excessive state update (round it or toFixed).
     _setIndicatorTop(num.toFixed(3))
   }, []);
 
-  const updateToClientYChange = useUpdateToClientYChange(anchorListLength, rootRef, setIndicatorTop, sectionPositions, listEndPosition);
-  useBindScrollHandler(setIndicatorTop, sectionPositions, listEndPosition, anchorListLength, isTouchingRef);
-  useBindTouchHandler(rootRef, updateToClientYChange, isTouchingRef);
+  const updateToClientYChange = useUpdateToClientYChange(anchorListLength, rootRef, sectionPositions, listEndPosition);
+  useBindScrollHandler(setIndicatorTop, sectionPositions, listEndPosition, anchorListLength);
+  useBindTouchHandler(rootRef, updateToClientYChange);
 
   const mouseMoveHandler = useCallback((e) => {
-    isTouchingRef.current = true;
     const clientY = e.clientY;
     updateToClientYChange(clientY)
   }, [updateToClientYChange]);
-
-  const mouseLeaveHandler = useCallback(() => {
-    isTouchingRef.current = false
-  }, []);
 
   return (
       <div
@@ -292,7 +270,6 @@ const TouchScrollBarInner = ({anchorList, anchorRefs, listRef}) => {
           style={styles.container}
           onMouseEnter={mouseMoveHandler}
           onMouseMove={mouseMoveHandler}
-          onMouseLeave={mouseLeaveHandler}
       >
         <div className={classes.relativeWrapper}>
           <div
